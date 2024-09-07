@@ -1,0 +1,5 @@
+alright
+colorama
+phonenumbers
+selenium
+webdriver-manager

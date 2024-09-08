@@ -1,5 +1,8 @@
 alright
 colorama
+gspread
 phonenumbers
+polars
+PyYAML
 selenium
 webdriver-manager

@@ -1,8 +1,8 @@
-import log
-from config import Config
+from . import log
+from .config import Config
+from .sheets import *
 
 import os
-import time
 import sys
 
 from contextlib import contextmanager
@@ -14,6 +14,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 
+import gspread
 import phonenumbers
 from phonenumbers import PhoneNumber
 
@@ -54,25 +55,20 @@ class WhatsappInstance:
         finally:
             pass
 
+
 class _WGuard:
-    def __init__(self, whatsapp: WhatsappInstance, num: PhoneNumber):
+    def __init__(self, whatsapp: WhatsappInstance, num: PhoneNumber, config: Config):
         self.instance = whatsapp
         self.num = num
+        self.config = config
 
     def send(self, message: str):
         num_f = phonenumbers.format_number(self.num, phonenumbers.PhoneNumberFormat.E164).lstrip('+')
 
         if TEST_GUARD:
-            with open("./.safety", "r") as f:
-                num_f = f.read().strip()
+            num_f = self.config.safety.num
 
         log.info(num_f)
 
         self.instance.whatsapp.send_direct_message(num_f, message, saved=False)
         self.instance.whatsapp.wait_until_message_successfully_sent()
-
-
-w = WhatsappInstance(Config())
-
-with w.direct(phonenumbers.parse("+966 50 521 1235", "IN")) as x:
-    x.send("Hello, world!")

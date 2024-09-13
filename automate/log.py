@@ -8,3 +8,9 @@ def info(message):
     print(f" [INFO][{datetime.now().strftime('%H:%M:%S')}] ", end='')
     print(f"{Style.RESET_ALL}", end='')
     print(message)
+
+def warn(message):
+    print(f"{Fore.LIGHTMAGENTA_EX}", end='')
+    print(f" [INFO][{datetime.now().strftime('%H:%M:%S')}] ", end='')
+    print(f"{Style.RESET_ALL}", end='')
+    print(message)

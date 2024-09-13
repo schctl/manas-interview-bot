@@ -6,3 +6,5 @@ polars
 PyYAML
 selenium
 webdriver-manager
+yaspin
+xlsxwriter

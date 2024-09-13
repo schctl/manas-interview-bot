@@ -1,12 +1,64 @@
 import gspread
 import polars as pl
+from yaspin import yaspin
+
+from contextlib import contextmanager
+
+# A1 notation primer
+# - Sheet1!A1:B2 refers to all the cells in the first two rows and columns of Sheet1.
+# - Sheet1!A:A refers to all the cells in the first column of Sheet1.
+# - Sheet1!1:2 refers to all the cells in the first two rows of Sheet1.
+# - Sheet1!A5:A refers to all the cells of the first column of Sheet 1, from row 5 onward.
+# - A1:B2 refers to all the cells in the first two rows and columns of the first visible sheet.
+# - Sheet1 refers to all the cells in Sheet1.
+# - 'Jon's_Data'!A1:D5 refers to all the cells in the first five rows and four columns of a sheet named "Jon's_Data."
+# - 'My Custom Sheet'!A:A refers to all the cells in the first column of a sheet named "My Custom Sheet."
+# - 'My Custom Sheet' refers to all the cells in "My Custom Sheet".
+
 
 class PolarsModel:
     def __init__(self, sheet: gspread.Spreadsheet, ws_name: str):
-        worksheet = sheet.worksheet(ws_name)
-        sheet_data = worksheet.get_all_values()
+        self.worksheet = sheet.worksheet(ws_name)
+        sheet_data = self.worksheet.get_all_values()
 
-        self.records = pl.DataFrame(sheet_data)
+        self.records = pl.DataFrame(sheet_data).transpose()
+        self.records.columns = self.records.head(1).rows()[0]
+        self.records = self.records.with_row_index().filter(pl.col("index") != 0)
+
+
+    def col_at(self, col_name: str):
+        # see note in `_ModelGuard.update_cell`
+        return self.records.get_column_index(col_name)
+
+    @contextmanager
+    def update(self):
+        try:
+            guard = _ModelGuard(self)
+            yield guard
+        finally:
+            if len(guard.batch) > 0:
+                with yaspin(text="Updating sheet...", color="cyan"):
+                    self.worksheet.batch_update(guard.batch)
+
+
+class _ModelGuard:
+    def __init__(self, model):
+        self.model = model
+        self.batch = []
+
+    # Update value at a specific cell index.
+    #
+    # NOTE: The cell index is based on the INTERNAL DATAFRAME.
+    # Therefore, row indices start at 0 and column starts at 1.
+    def cell(self, col: str, row: int, value):
+        self.model.records[row, col] = value
+
+        self.batch.append({
+            "range": gspread.utils.rowcol_to_a1(row + 2, self.model.col_at(col)),
+            "values": [[value]]
+        })
+
+        print(f"{gspread.utils.rowcol_to_a1(row + 2, self.model.col_at(col))} -> {value}", end='\t')
 
 
 class FormModel(PolarsModel):
@@ -18,7 +70,10 @@ class ScheduleModel(PolarsModel):
     def __init__(self, sheet: gspread.Spreadsheet):
         super().__init__(sheet, "Interview Schedules")
 
-
 class ScoresModel(PolarsModel):
     def __init__(self, sheet: gspread.Spreadsheet):
         super().__init__(sheet, "Interview Scores")
+
+class OldAutomatorModel(PolarsModel):
+    def __init__(self, sheet: gspread.Spreadsheet):
+        super().__init__(sheet, "Form Responses 1")

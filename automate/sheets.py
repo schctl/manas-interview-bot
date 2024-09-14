@@ -37,7 +37,7 @@ class PolarsModel:
             yield guard
         finally:
             if len(guard.batch) > 0:
-                with yaspin(text="Updating sheet...", color="cyan"):
+                with yaspin(text=f"Updating {len(guard.batch)} cells...", color="cyan"):
                     self.worksheet.batch_update(guard.batch)
 
 

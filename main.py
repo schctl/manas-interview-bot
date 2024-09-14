@@ -63,28 +63,51 @@ class Automator:
                (SequenceMatcher(None, A_reg, B_reg).ratio() * 3) +   \
                (A_ph == B_ph)
 
-    def __prune_duplicates_df(self, df: pl.DataFrame):
-        indices = []
 
-        for (n, row) in enumerate(df.iter_rows(named=True)):
-            # This is PROBABLY not the most efficient way to do this.
-            for (check, check_row) in enumerate(df.head(n).iter_rows(named=True)):
-                if Automator.duplicate_score(row["Full Name"],
-                                        row["Registration No."],
-                                        row["WhatsApp Number"],
-                                        check_row["Full Name"],
-                                        check_row["Registration No."],
-                                        check_row["WhatsApp Number"]) > 0.75 * 5:
-                    indices.append(check)
-                    break
+    def sync_duplicates_scores(self):
+        with self.scores.update() as update:
+            for (n, row) in enumerate(self.scores.records.iter_rows(named=True)):
+                for (m, check_row) in enumerate(self.scores.records.iter_rows(named=True)):
+                    if (m > n):
+                        x = Automator.duplicate_score(row["Full Name"],
+                                                row["Registration No."],
+                                                None,
+                                                check_row["Full Name"],
+                                                check_row["Registration No."],
+                                                None)
+                        
+                        if x > 0.90 * 6:
+                            score = float(row["Overall"].strip())
+                            check_score = float(check_row["Overall"])
 
-    def prune_duplicates(self):
-        pass
+                            if check_score != 0:
+                                if score == check_score:
+                                    automate.log.info(f"Duplicate {check_row['Full Name']} is already synchronised")
+
+                                elif score == 0:
+                                    update.cell("Overall", n, check_score)
+                                    update.cell("Remarks", n, "duplicate")
+                                    automate.log.info(f"Found non-updated (pre) duplicate {check_row['Full Name']} with overall {check_score}.")
+
+                                else:
+                                    automate.log.info(f"Found conflicting duplicate {check_row['Full Name']} with overalls {check_score} and {row}.")
+
+                            else:
+                                if score != 0:
+                                    update.cell("Overall", m, score)
+                                    update.cell("Remarks", m, "duplicate")
+                                    automate.log.info(f"Found non-updated duplicate {check_row['Full Name']} with overall {score}.")
+                                
+                                if score == 0:
+                                    if row["Remarks"] != "duplicate":
+                                        update.cell("Remarks", n, "duplicate")
+                                        automate.log.info(f"Found non-done duplicate {check_row['Full Name']}")
+                                    else:
+                                        automate.log.info(f"Duplicate {check_row['Full Name']} is already synchronised")
+                                
 
 
     def sync_notified(self):
-        count = 0
-
         with self.schedules.update() as update:
             for (n, row) in enumerate(self.old_automator.records.iter_rows(named=True)):
                 # Check if they came for the interview
@@ -95,7 +118,7 @@ class Automator:
                                             sched_row["Full Name"],
                                             sched_row["Registration No."],
                                             sched_row["WhatsApp Number"])
-                    if x > 0.85 * 6:
+                    if x > 0.90 * 6:
                         sched_time = row[f"Notified_{config.records['subsystem']}"].strip()
 
                         if sched_row["Interview Date/Time"].strip() == "":
@@ -106,13 +129,15 @@ class Automator:
                                 update.cell("WS Sender", m, row["MemberNotifier"])
 
                             automate.log.info(f"Updated {sched_row['Full Name']} with {sched_time}")
-                            count += 1
+
+
+    def sync_no_shows(self):
+        with self.scores.update() as update:
+            pass
 
 
     # Check if they came for the interview
     def sync_appearances(self):
-        count = 0
-
         with self.schedules.update() as update:
             for (n, row) in enumerate(self.scores.records.iter_rows(named=True)):
                 for (m, sched_row) in enumerate(self.schedules.records.iter_rows(named=True)):
@@ -128,7 +153,6 @@ class Automator:
                             update.cell("Appeared", m, "yes")
 
                             automate.log.info(f"Updated {sched_row['Full Name']} with `yes`")
-                            count += 1
 
     def sync_all(self):
         pass
@@ -140,7 +164,7 @@ if __name__ == '__main__':
     auto = Automator()
     auto.backup_data()
 
-    print(auto.form.records)
+    print(auto.scores.records)
 
     while True:
         try:
@@ -148,12 +172,14 @@ if __name__ == '__main__':
 
             if function.lower().strip() == "help":
                 print_help()
-            if function.lower().strip() == "sync_notified":
+            elif function.lower().strip() == "sync_notified":
                 auto.sync_notified()
-            if function.lower().strip() == "sync_appear":
+            elif function.lower().strip() == "sync_appear":
                 auto.sync_appearances()
+            elif function.lower().strip() == "sync_duplicate_scores":
+                auto.sync_duplicates_scores()
 
-            if function.lower().strip() == "exit":
+            elif function.lower().strip() == "exit":
                 break
 
         except Exception as e:

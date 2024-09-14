@@ -36,9 +36,7 @@ class PolarsModel:
             guard = _ModelGuard(self)
             yield guard
         finally:
-            if len(guard.batch) > 0:
-                with yaspin(text=f"Updating {len(guard.batch)} cells...", color="cyan"):
-                    self.worksheet.batch_update(guard.batch)
+            guard._update()
 
 
 class _ModelGuard:
@@ -58,7 +56,17 @@ class _ModelGuard:
             "values": [[value]]
         })
 
+        if len(self.batch) > 10:
+            self._update()
+
         return f"{gspread.utils.rowcol_to_a1(row + 2, self.model.col_at(col))} -> {value}"
+    
+
+    def _update(self):
+        if len(self.batch) > 0:
+            with yaspin(text=f"Updating {len(self.batch)} cells...", color="cyan"):
+                self.model.worksheet.batch_update(self.batch)
+            self.batch = []
 
 
 class FormModel(PolarsModel):

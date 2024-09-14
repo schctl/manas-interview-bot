@@ -19,7 +19,7 @@ import phonenumbers
 from phonenumbers import PhoneNumber
 
 
-TEST_GUARD = True
+TEST_GUARD = False
 
 
 class WhatsappInstance:
@@ -50,7 +50,7 @@ class WhatsappInstance:
     @contextmanager
     def direct(self, num: PhoneNumber):
         try:
-            guard = _WGuard(self, num)
+            guard = _WGuard(self, num, self.config)
             yield guard
         finally:
             pass

@@ -5,12 +5,18 @@ import automate.log
 from automate.sheets import *
 
 from difflib import SequenceMatcher
+from datetime import timedelta
+import math
+import multiprocessing
 import traceback
+import time
 
+import dateparser
 import gspread
 import phonenumbers
 from phonenumbers import PhoneNumber
 import polars as pl
+import timelength
 
 from yaspin import yaspin
 
@@ -53,6 +59,10 @@ class Automator:
         self.scores.records.write_excel("./.data/scores.xlsx")
         self.schedules.records.write_excel("./.data/schedules.xlsx")
         self.old_automator.records.write_excel("./.data/old_automator.xlsx")
+
+    # -------------------------------------------------------------------------
+    #                       SYNCHRONIZATION HEURISTICS
+    # -------------------------------------------------------------------------
 
     # Duplicate checking and removal
     @staticmethod
@@ -172,7 +182,8 @@ class Automator:
                             update.cell("Appeared", m, "yes")
 
                             automate.log.info(f"Updated {sched_row['Full Name']} with `yes`")
-        
+
+
     def sync_registry(self):
         """Synchronize form responses with schedule sheet."""
 
@@ -231,7 +242,7 @@ class Automator:
 
         heuristics = [
             self.sync_registry,
-            self.sync_notified,
+            # self.sync_notified, -x- DISABLED
             self.sync_duplicates_scores,
             self.sync_appearances,
             self.sync_no_shows
@@ -240,6 +251,78 @@ class Automator:
         for h in heuristics:
             with yaspin(text=h.__doc__, color="green"):
                 h()
+
+
+    # -------------------------------------------------------------------------
+    #                       SCHEDULING TOOLS
+    # -------------------------------------------------------------------------
+
+    def run_scheduling(self):
+        print("🤖 Welcome to the Interview Scheduling Prompt. Answer the questions below to begin your automatic scheduling process. 🤖")
+        date = dateparser.parse(input("Begin time for schedule block: "))
+        block = timedelta(seconds=timelength.TimeLength(input("Block duration: "), strict=True).to_seconds())
+        duration = timedelta(seconds=timelength.TimeLength(input("Interview duration: "), strict=True).to_seconds())
+        at_once = int(input("Concurrent interviews: "))
+
+        message = ''
+        with open("message.txt", "r") as f:
+            message = f.read()
+
+        count = 0
+        time_slots = math.ceil(block / duration)
+        slot = 0 # time slot index
+        intv = 0 # interview index within slot
+
+        whatsapp = WhatsappInstance(self.config)
+
+        with self.schedules.update() as update:
+            for (n, row) in enumerate(self.schedules.records.iter_rows(named=True)):
+                if row["Interview Date/Time"].strip() == "" and row["Appeared"].casefold().strip() != "yes":
+                    if intv >= at_once:
+                        intv = 0
+                        slot += 1
+                        date += duration
+
+                    if slot >= time_slots:
+                        break
+
+                    formatted_date = date.strftime("%d/%m/%Y, %I:%M %p")
+                    user_message = message.format(name=row["Full Name"], date=formatted_date, subsystem=self.config.records["subsystem"])
+
+                    success = False
+
+                    for _ in range(int(self.config.records["whatsapp"]["tries"])):
+                        try:
+                            with whatsapp.direct(phonenumbers.parse(row["WhatsApp Number"], "IN")) as dm:
+                                process = multiprocessing.Process(target=dm.send, args=(user_message,))
+                                process.start()
+                                process.join(float(self.config.records["whatsapp"]["timeout"]))
+
+                                if process.is_alive():
+                                    process.terminate()
+                                    continue
+
+                            if not automate.whatsapp.TEST_GUARD:
+                                success = True
+                                update.cell("Interview Date/Time", n, f"Notified: {formatted_date}")
+                                update.cell("WS Sender", n, self.config.safety.name)
+
+                            intv += 1
+                            count += 1
+                            time.sleep(float(self.config.records["whatsapp"]["sleep"]))
+
+                        except Exception as _:
+                            print(f"[{n}] Oops! Failed to schedule {row['Full Name']}. Traceback follows.")
+                            print(traceback.format_exc())
+
+                        else:
+                            break
+
+                    if not success and not automate.whatsapp.TEST_GUARD:
+                        update.cell("Interview Date/Time", n, "Message timed out")
+                        update.cell("Appeared", n, "Resched")
+    
+        automate.log.info(f"Scheduled {count} interviews.")
 
 
 if __name__ == '__main__':
@@ -268,6 +351,9 @@ if __name__ == '__main__':
                 auto.sync_registry()
             elif function == "sync_all":
                 auto.sync_all()
+            
+            elif function == "schedule":
+                auto.run_scheduling()
 
             elif function == "exit":
                 break

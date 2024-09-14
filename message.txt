@@ -1,0 +1,7 @@
+⭕⭕⭕
+
+Hello {name}, this message is a confirmation of your *Project Manas* interview, for the {subsystem} subsystem. 
+
+Your interview has been scheduled for *{date}*. You are requested to come to the workshop 10 minutes prior to the given time slot. 
+Our workshop location is: https://g.page/project-manas-manipal?share
+Please acknowledge this message to confirm your presence.

@@ -3,6 +3,13 @@ from datetime import datetime
 
 from colorama import Fore, Style
 
+def trace(message):
+    print('', end='\x1b[1K\r')
+    print(f"{Fore.LIGHTBLACK_EX}", end='')
+    print(f" [INFO][{datetime.now().strftime('%H:%M:%S')}] ", end='')
+    print(message, end='')
+    print(f"{Style.RESET_ALL}")
+
 def info(message):
     print('', end='\x1b[1K\r')
     print(f"{Fore.LIGHTBLACK_EX}", end='')

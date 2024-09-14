@@ -1,10 +1,12 @@
 alright
 colorama
+dateparser
 gspread
 phonenumbers
 polars
 PyYAML
 selenium
 webdriver-manager
+timelength
 yaspin
 xlsxwriter

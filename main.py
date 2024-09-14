@@ -20,8 +20,7 @@ def print_startup():
     print("To read more about our functions, type in `help`.")
 
 def print_help():
-    # For each of these functions, our highest precedence condition is the score column.
-    # As long as an interviewee has a valid score, they have - showed up for the interview.
+    # Read the code for documentation :)
 
     print("Functions")
     print("---------")
@@ -34,7 +33,8 @@ def print_help():
 
 class Automator:
     @yaspin(text="Loading data...", color="cyan")
-    def __init__(self):
+    def __init__(self, config: Config):
+        self.config = config
         self.sac = gspread.service_account(filename="credentials.json")
 
         form_sheet       = self.sac.open_by_url(config.records["sheets"]["form"])
@@ -45,8 +45,6 @@ class Automator:
         self.scores = ScoresModel(interviews_sheet)
         self.schedules = ScheduleModel(interviews_sheet)
         self.old_automator = OldAutomatorModel(old_automator_sheet)
-
-        self.duplicates = {}
 
     
     def backup_data(self):
@@ -65,6 +63,8 @@ class Automator:
 
 
     def sync_duplicates_scores(self):
+        """Synchronize duplicate score sheet entries."""
+
         with self.scores.update() as update:
             for (n, row) in enumerate(self.scores.records.iter_rows(named=True)):
                 for (m, check_row) in enumerate(self.scores.records.iter_rows(named=True)):
@@ -108,6 +108,8 @@ class Automator:
 
 
     def sync_notified(self):
+        """Migrate notified members from old automator script."""
+
         with self.schedules.update() as update:
             for (n, row) in enumerate(self.old_automator.records.iter_rows(named=True)):
                 # Check if they came for the interview
@@ -132,54 +134,142 @@ class Automator:
 
 
     def sync_no_shows(self):
+        """Synchronize no-shows with score sheet."""
+
         with self.scores.update() as update:
-            pass
+            for (n, row) in enumerate(self.schedules.records.iter_rows(named=True)):
+                for (m, check_row) in enumerate(self.scores.records.iter_rows(named=True)):
+                    x = Automator.duplicate_score(row["Full Name"],
+                                            row["Registration No."],
+                                            None,
+                                            check_row["Full Name"],
+                                            check_row["Registration No."],
+                                            None)
+                    if x > 0.90 * 6:
+                        remarks = row["Remarks"].casefold().strip()
+
+                        if remarks == "no show" or remarks == "no show, no reply":
+                            update.cell("Remarks", m, remarks)
+                            automate.log.info(f"Updated {row['Full Name']} with {remarks}")
 
 
     # Check if they came for the interview
     def sync_appearances(self):
+        """Synchronize show-ups with schedule sheet."""
+        
         with self.schedules.update() as update:
             for (n, row) in enumerate(self.scores.records.iter_rows(named=True)):
                 for (m, sched_row) in enumerate(self.schedules.records.iter_rows(named=True)):
                     x = Automator.duplicate_score(row["Full Name"],
                                             row["Registration No."],
-                                            sched_row["WhatsApp Number"],
+                                            None,
                                             sched_row["Full Name"],
                                             sched_row["Registration No."],
-                                            sched_row["WhatsApp Number"])
+                                            None)
                     if x > 0.90 * 6:
                         if (float(row["Overall"].strip()) > 0 or row["Interviewers"].strip() != "") and sched_row["Appeared"].casefold().strip() == "":
                             print(f"{n} [{x}]:", end='\t')
                             update.cell("Appeared", m, "yes")
 
                             automate.log.info(f"Updated {sched_row['Full Name']} with `yes`")
+        
+    def sync_registry(self):
+        """Synchronize form responses with schedule sheet."""
+
+        with self.schedules.update() as update_sched:
+            with self.scores.update() as update_score:
+                for (n, row) in enumerate(self.form.records.iter_rows(named=True)):
+                    if row["First Preference of Subsystem"].casefold().strip() == self.config.records["subsystem"].casefold().strip() or \
+                        row["Second Preference of Subsystem"].casefold().strip() == self.config.records["subsystem"].casefold().strip():
+
+                        # Update schedule sheet
+                        count_scheds = 0
+
+                        for (m, check_row) in enumerate(self.schedules.records.iter_rows(named=True)):
+                            x = Automator.duplicate_score(row["Full Name"],
+                                                row["Registration No. "],
+                                                row["WhatsApp Number"],
+                                                check_row["Full Name"],
+                                                check_row["Registration No."],
+                                                check_row["WhatsApp Number"])
+                            if x > 0.82 * 6:
+                                break
+                        else:
+                            k = m + count_scheds
+                            update_sched.cell("Full Name", k, row["Full Name"])
+                            update_sched.cell("Registration No.", k, row["Registration No. "])
+                            update_sched.cell("WhatsApp Number", k, row["WhatsApp Number"])
+                            update_sched.cell("Branch", k, row["Branch"])
+                            update_sched.cell("First Preference of Subsystem", k, row["First Preference of Subsystem"])
+
+                            automate.log.info(f"Adding {row['Full Name']} to the schedules list")
+                            count_scheds += 1
+
+                        # Update score sheet
+                        count_scores = 0
+
+                        for (m, check_row) in enumerate(self.scores.records.iter_rows(named=True)):
+                            x = Automator.duplicate_score(row["Full Name"],
+                                                row["Registration No. "],
+                                                None,
+                                                check_row["Full Name"],
+                                                check_row["Registration No."],
+                                                None)
+                            if x > 0.82 * 6:
+                                break
+                        else:
+                            k = m + count_scores
+                            update_sched.cell("Full Name", k, row["Full Name"])
+                            update_sched.cell("Registration No.", k, row["Registration No. "])
+
+                            automate.log.info(f"Adding {row['Full Name']} to the scores list")
+                            count_scores += 1
+
 
     def sync_all(self):
-        pass
+        # Run all synchronization heuristics
+
+        heuristics = [
+            self.sync_registry,
+            self.sync_notified,
+            self.sync_duplicates_scores,
+            self.sync_appearances,
+            self.sync_no_shows
+        ]
+
+        for h in heuristics:
+            with yaspin(text=h.__doc__, color="green"):
+                h()
 
 
 if __name__ == '__main__':
     config = Config()
 
-    auto = Automator()
+    auto = Automator(config)
     auto.backup_data()
 
     print(auto.scores.records)
 
     while True:
         try:
-            function = input(" >> ")
+            function = input(" >> ").lower().strip()
 
-            if function.lower().strip() == "help":
+            if function == "help":
                 print_help()
-            elif function.lower().strip() == "sync_notified":
+            elif function == "sync_notified":
                 auto.sync_notified()
-            elif function.lower().strip() == "sync_appear":
+            elif function == "sync_appear":
                 auto.sync_appearances()
-            elif function.lower().strip() == "sync_duplicate_scores":
+            elif function == "sync_duplicate_scores":
                 auto.sync_duplicates_scores()
+            elif function == "sync_no_shows":
+                auto.sync_no_shows()
+            elif function == "sync_registry":
+                auto.sync_registry()
+            elif function == "sync_all":
+                auto.sync_all()
 
-            elif function.lower().strip() == "exit":
+            elif function == "exit":
                 break
 
         except Exception as e:

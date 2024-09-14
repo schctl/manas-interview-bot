@@ -50,7 +50,7 @@ class _ModelGuard:
     #
     # NOTE: The cell index is based on the INTERNAL DATAFRAME.
     # Therefore, row indices start at 0 and column starts at 1.
-    def cell(self, col: str, row: int, value):
+    def cell(self, col: str, row: int, value) -> str:
         self.model.records[row, col] = value
 
         self.batch.append({
@@ -58,7 +58,7 @@ class _ModelGuard:
             "values": [[value]]
         })
 
-        print(f"{gspread.utils.rowcol_to_a1(row + 2, self.model.col_at(col))} -> {value}", end='\t')
+        return f"{gspread.utils.rowcol_to_a1(row + 2, self.model.col_at(col))} -> {value}"
 
 
 class FormModel(PolarsModel):

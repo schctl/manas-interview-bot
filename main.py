@@ -1,6 +1,7 @@
 import automate
 from automate import Config
 from automate import WhatsappInstance
+import automate.log
 from automate.sheets import *
 
 from difflib import SequenceMatcher
@@ -36,14 +37,14 @@ class Automator:
     def __init__(self):
         self.sac = gspread.service_account(filename="credentials.json")
 
-        self.form_sheet       = self.sac.open_by_url(config.records["sheets"]["form"])
-        self.interviews_sheet = self.sac.open_by_url(config.records["sheets"]["interviews"])
-        self.old_automator_sheet = self.sac.open_by_url(config.records["sheets"]["old_automator"])
+        form_sheet       = self.sac.open_by_url(config.records["sheets"]["form"])
+        interviews_sheet = self.sac.open_by_url(config.records["sheets"]["interviews"])
+        old_automator_sheet = self.sac.open_by_url(config.records["sheets"]["old_automator"])
 
-        self.form = FormModel(self.form_sheet)
-        self.scores = ScoresModel(self.interviews_sheet)
-        self.schedules = ScheduleModel(self.interviews_sheet)
-        self.old_automator = OldAutomatorModel(self.old_automator_sheet)
+        self.form = FormModel(form_sheet)
+        self.scores = ScoresModel(interviews_sheet)
+        self.schedules = ScheduleModel(interviews_sheet)
+        self.old_automator = OldAutomatorModel(old_automator_sheet)
 
         self.duplicates = {}
 
@@ -83,7 +84,6 @@ class Automator:
 
     def sync_notified(self):
         count = 0
-        batch = []
 
         with self.schedules.update() as update:
             for (n, row) in enumerate(self.old_automator.records.iter_rows(named=True)):
@@ -98,18 +98,37 @@ class Automator:
                     if x > 0.85 * 6:
                         sched_time = row[f"Notified_{config.records['subsystem']}"].strip()
 
-                        print(f"{n} [{x}]:", end='\t')
-                        update.cell("Interview Date/Time", m, sched_time)
+                        if sched_row["Interview Date/Time"].strip() == "":
+                            print(f"{n} [{x}]:", end='\t')
+                            update.cell("Interview Date/Time", m, sched_time)
 
-                        if (sched_row["WS Sender"].strip() == "" and sched_time != "") or row["MemberNotifier"] == "":
-                            update.cell("WS Sender", m, row["MemberNotifier"])
+                            if (sched_row["WS Sender"].strip() == "" and sched_time != "") or row["MemberNotifier"] == "":
+                                update.cell("WS Sender", m, row["MemberNotifier"])
 
-                        print(f"Updated {sched_row['Full Name']} with {sched_time}")
-                        count += 1
+                            automate.log.info(f"Updated {sched_row['Full Name']} with {sched_time}")
+                            count += 1
+
 
     # Check if they came for the interview
     def sync_appearances(self):
-        pass
+        count = 0
+
+        with self.schedules.update() as update:
+            for (n, row) in enumerate(self.scores.records.iter_rows(named=True)):
+                for (m, sched_row) in enumerate(self.schedules.records.iter_rows(named=True)):
+                    x = Automator.duplicate_score(row["Full Name"],
+                                            row["Registration No."],
+                                            sched_row["WhatsApp Number"],
+                                            sched_row["Full Name"],
+                                            sched_row["Registration No."],
+                                            sched_row["WhatsApp Number"])
+                    if x > 0.90 * 6:
+                        if (float(row["Overall"].strip()) > 0 or row["Interviewers"].strip() != "") and sched_row["Appeared"].casefold().strip() == "":
+                            print(f"{n} [{x}]:", end='\t')
+                            update.cell("Appeared", m, "yes")
+
+                            automate.log.info(f"Updated {sched_row['Full Name']} with `yes`")
+                            count += 1
 
     def sync_all(self):
         pass
@@ -117,7 +136,6 @@ class Automator:
 
 if __name__ == '__main__':
     config = Config()
-
 
     auto = Automator()
     auto.backup_data()
@@ -130,10 +148,10 @@ if __name__ == '__main__':
 
             if function.lower().strip() == "help":
                 print_help()
-                continue
-
-            if function.lower().strip() == "list_notified":
+            if function.lower().strip() == "sync_notified":
                 auto.sync_notified()
+            if function.lower().strip() == "sync_appear":
+                auto.sync_appearances()
 
             if function.lower().strip() == "exit":
                 break
